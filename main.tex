@@ -1,0 +1,241 @@
+\documentclass[11pt, twocolumn]{article}
+\usepackage[total={6in, 8in}, margin=0.75in]{geometry}
+\usepackage{booktabs} % for nice tables
+\usepackage{longtable}
+\usepackage{lmodern}
+\usepackage{listings}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage{wrapfig}
+\usepackage{cite}
+\usepackage{url}
+\usepackage{microtype}
+\usepackage[toc,page]{appendix}
+%\usepackage{lineno}
+
+\usepackage{amssymb}
+\usepackage{tabularx}
+%\usepackage[paper=letterpaper,top=1in,bottom=1in,left=1in,right=1in]{geometry}
+
+\usepackage[T1]{fontenc}
+\usepackage[sc]{mathpazo}
+\linespread{1.02}
+
+\setlength\parindent{0pt}
+\setlength{\parskip}{7pt plus4mm minus3mm}
+\newcommand{\block}{\footnotesize $\blacksquare$ \normalsize}
+%\pagestyle{empty}
+\newcommand{\squeezeup}{\vspace{-5.5mm}}
+%\linenumbers
+
+\bibliographystyle{plain}
+
+\begin{document}
+\title{Known Vs Novelty: Exploring two Programming Abstractions for Experimental HEP Analyses}
+\author{Saba Sehrish \\ Computer Science Researcher\\ Fermi National Accelerator Laboratory \\ ssehrish@fnal.gov}
+\date{}
+\maketitle
+
+\thispagestyle{empty}
+
+\section*{Abstract}
+\squeezeup
+Analyzing petabytes of experimental physics data requires repeated expensive evaluation of selection and filtering criteria. We describe how MPI and Spark can improve time-to-physics for interactive analysis on HPC resources. We evaluate the performance benefits of holding full datasets in memory and the productivity benefits to physicists when using high-level abstractions. 
+\\
+Track: Data Science  \\
+Audience: Beginner, Intermediate technical talk \\
+\squeezeup
+\input{intro}. 
+\squeezeup
+%\squeezeup
+\section{Features of selection and filtering and our approach}
+%\squeezeup
+
+The structured event data is converted to a simplified tabular data structure, called as n-tuples. 
+These n-tuples have a simple flat structure of vectors of basic types like integers and floats. 
+Each row of a table holds information about different particles (photons, electrons, taus) and 
+their properties (momentum, etc) in an event. Often, the n-tuples are still too big for interactive 
+analysis ($\approx$ 2) terabytes. Therefore, the contents and the number of events are 
+reduced to couple of gigabytes. Eventually, quantities from the final n-tuple are aggregated 
+and plotted as histograms. 
+The time scale of the complete Dark Matter workflow 
+can range from days to weeks, depending on the number of events needed for analysis.
+
+The data we operate on describe an events, and its attributes. 
+An event is the basic processing unit, which describes a collision or? 
+A typical analysis task looks at all the (collisions) event data, which includes data about 
+all the particles that were formed as a result of collision and searches for 
+interesting events based on signatures specified by scientists. 
+The selection and filtering criteria involves reducing the event count, 
+as well as the attributes. This directly translates to range queries 
+across multiple variables. Such queries are not only hard to 
+describe by just SQL declarative statements, but also 
+challenging to deal with using the obvious relational database approach, 
+unless we main index for each column involved in range query or do a 
+full scan of data. Both options are inefficient in terms of space utilization 
+as well performance. 
+
+For example, such a search query will look like 
+Find all the events that have:
+\begin{enumerate}
+\item missing transverse energy greater than 200 GeV and 
+\item at least one electron candidate with 
+\begin{enumerate}
+\item Transverse momentum > 200 GeV
+\item eta in the range of -2.5 to 2.5
+\item good electron quality: qual > 5
+\end{enumerate}
+\end{enumerate}
+For each selected event record: missing transverse energy , the leading electron transverse momentum
+
+To benefit from big compute and memory architecture, we represent our data 
+in HDF5 format, which is highly optimized for access in these machines. 
+In Spark, we use the combination of Scala functional programming with Spark SQL 
+allows us to describe the queries to operate on dataset as a whole. 
+In MPI, we make use of the numpy arrays and define operations on the arrays, 
+and use MPI for communication. 
+
+We implement this problem in two phases, one is read data, and second is process data. 
+
+% talk about tuning 
+% two step problem: optimize read, initial read form disk and effecient layout in memory
+% stripe size equal to chunk size 
+% encode multi-dimensional queries on the tabular data
+% talk about how numpy provides competitive approach, 
+% however once data is in memory Spark is comparable ... 
+
+
+
+
+%\squeezeup
+\section{Comparing two approaches}
+\squeezeup
+ \paragraph{On-disk data} 
+%Our first step is to convert the data to a form that 
+%can be readily read in Spark DataFrames as shown in Figure~\ref{fig:flow}. 
+%The CMS data is stored in the form of ROOT trees~\cite{root}, which is the most common 
+%data format in HEP, which are not accessible in Spark. 
+%The ROOT data format is hierarchical and complex and Spark DataFrames are tabular.  
+%Hence, we need flattened tables to effectively use the API. 
+%Additionally, we are working to use Avro and HDF5 data formats for this project. 
+HDF5 is used as the input data format for both MPI and Spark implementation. 
+It is one of the tuned and supported parallel I/O libraries available on HPC machines. 
+Parallel HDF5 is tightly coupled with MPI, and several optimization are 
+available to efficiently read different data access patterns. 
+In Spark, reading HDF5 data is non-trivial, and it requires several steps 
+to read it. We implemented a custom reader to achieve the required functionality. 
+
+\paragraph{In-memory data}
+We read data into Spark DataFrames and numpy arrays. 
+pySpark uses numpy arrays in their implementation. 
+
+Currently we read data in multiple logical tables, e.g. all information regarding 
+a given reconstructed particle type can be found in one table. The nature of this analysis is to 
+combine the data from different tables 
+and make several histograms for different particles properties. 
+In our experience, if we read data from multiple DataFrames, 
+adding a new column to the DataFrame from another 
+DataFrame is not supported within Spark. Spark only supports adding new columns within the same DataFrame. 
+We also use inner joins to combine the DataFrames, but the overhead of the 
+\texttt{join} operation is extremely overwhelming and we are investigating this issue. 
+
+\paragraph{APIs and defining operations} 
+%This analysis requires skimming and slimming operation. 
+%The skimming and slimming operation involves the use of functions; \texttt{map}, \texttt{filter} and 
+%\texttt{reduce}. 
+Scala is a natural choice to implement this operation; Spark is written in Scala 
+and it should out-perform Python on large data sets.  
+
+
+\paragraph{Performance: } 
+
+
+ 
+\paragraph{Scaling: }
+We have used Java in our initial experience with Spark to perform filter and reduction 
+operation and understand the performance and scaling on Cori (NERSC). 
+Using a data set of size 250 GB, with about 70 million records and applying a simple filter operation, 
+the Spark implementation provided good
+  scaling without requiring either tuning of the implementation or
+  developer expertise in parallel algorithms. 
+   
+
+ \paragraph{Orchestration: } 
+In Spark, data distribution and task assignment
+  is abstracted from the user. There are functions available to
+  perform global reduction in a distributed environment, which can be
+  readily used.  Such a set-up provides ease-of-programming in a
+  distributed environment. It does mean, however, that the user has to
+  rely on system optimizations provided by Spark's implementation to
+  improve any performance.
+
+  \paragraph{Application tuning: } All the transformations in Spark
+  are lazy, with delayed calculation of results. The transformations
+  applied to the base dataset are remembered by the system
+  and only computed when an action is carried out on the dataset.
+  This design enables Spark to run more efficiently. 
+  Due to this lazy evaluation, it is hard to isolate slow-performing tasks and report
+  timing for different stages. 
+  In MPI, since developer has more control over data and task assignment, it is 
+  straightforward to measure performance of each compute and I/O operation.  
+
+\paragraph{Debugging: } 
+Distributed applications are challenging to debug. 
+In Spark applications, 
+most of the times error messages are misleading and need more workjust to understand the error message before working ona solution. Use of graphical interface and history server canbe useful but when using DataFrame API, understandingdifferent stages and partitions is not straightforward. 
+In MPI, 
+
+
+
+\paragraph{Multiple language support: }
+The availability of Python and R interface for end user analyses is also a key feature desired by the HEP community.
+
+
+\paragraph{Documentation} 
+
+\section{Conclusion}
+Spark is relatively new and emerging technology, and its use, especially 
+in the HEP community, is in exploratory stages. The learning curve involved 
+with its use, especially using Scala, cannot be ignored. However, the availability 
+of APIs in R and Python improves beginner's experience. 
+Other advantages include task distribution and user controlled 
+data partitioning. We have seen good scaling behavior of Spark applications 
+with increase in dataset size and the number of nodes with no extra work. 
+Encoding analysis workflow using Scala best practices and the optimal 
+use of DataFrame features is challenging. The documentation 
+and error reporting should be improved. However, the ease of use, 
+reasonable performance and good scalability makes Spark a viable candidate for our future work.
+
+Spark provides implicit parallelization of the
+physicists' data processing algorithms using these functions, thus providing the possibility
+of good scaling to large numbers of cores without requiring the
+physicists to master complex parallel programming techniques. This
+provides important ease of use for ``casual'' programmers, for whom
+the goal is rapid turnaround time for analysis, who are usually not
+interested in developing specialized parallel programming
+skills. 
+
+\textbf{Participation}: If accepted, Saba Sehrish will attend the conference. 
+
+\textbf{Bio:} 
+Saba Sehrish is a Computer Science Researcher 
+at Fermi National Accelerator Laboratory. She did her post doc at Northwestern University
+and PhD at University of Central Florida. 
+Her research interests include HPC and Big data computing for HEP analysis.  
+She is currently working on Spark for HEP and also a team member of the LArSoft 
+project at Fermilab. 
+
+\textbf{Collaborators: } 
+Matteo Cremonesi, Oliver Gutsche, Jim Kowalkowski, 
+Cristina Mantilla, Marc Paterno, Jim Pivarski, Alexey Svyatkovskiy
+
+\textbf{Acknowledgement: }
+We would like to thank Lisa Gerhardt for guidance in using Spark optimally at NERSC. 
+This research supported through the  Contract No. DE-AC02-07CH11359 with the United States Department of Energy, 2016 ASCR Leadership Computing Challenge award titled ``An End-Station for Intensity and Energy Frontier Experiments and Calculations". This research used resources of the National Energy Research Scientific Computing Center, a DOE Office of Science User Facility supported by the Office of Science of the U.S. Department of Energy under Contract No. DE-AC02-05CH11231.
+\scriptsize
+
+%Bibliography and References Cited
+\bibliography{earlycareerbib,ssio}
+
+\end{document}
