@@ -19,13 +19,13 @@ must be analyzed to discover new particles or to measure the properties of known
 For example, data from over $300$ trillion ($3\times10^{14}$) proton-proton collisions at the 
 Large Hadron Collider (LHC) were analyzed for the Higgs boson discovery. 
 While the LHC generates up to a billion collisions per second; the High Luminosity-LHC~\cite{hllhc} will generate 5 times this rate.
-With increase in volume of data, the current tools and resources will be insufficient to 
+With the increase in the volume of data, the current tools and resources will be insufficient to 
 provide low-latency and interactive analysis. 
 
-HEP Analysis is an iterative process where low-latency and interactivity is the key to gain 
+A typical HEP Analysis is an iterative process where low-latency and interactivity is the key to gain 
 understanding of the fundamental particles and the interactions between them. 
 The analyses are IO bound and consist of several intermediate steps requiring to store 
-smaller reduced data sets on disk, which can be accessed interactively for end-user analysis. 
+smaller reduced data sets on disk, which can be later accessed interactively for end-user analysis. 
 These intermediate steps consist of applying selection algorithms, calculations of statistical summaries, 
 and exploratory plotting of the relevant summaries. 
 These steps can take from days to weeks; 
@@ -36,22 +36,50 @@ adds to the processing time.
 In the CMS Dark Matter search for new types of elementary particles,
 the data volume to be analyzed is about ($\approx$ 200) terabytes for the 2015 dataset. 
  %and contains both data and Monte Carlo simulations. 
- This is expected to grow in the future significantly in LHC run 2. 
+ This is expected to grow in the future significantly in future. 
  The data is reduced to couple of gigabytes to facilitate end-user analysis.  
 Similarly, in NOvA, an intensity frontier experiment, a particular analysis 
- performs selection on a billion events, and uses the passing 33 events with fewer 
+ performs selection on a billion events (in terabytes range), and uses the resulting 33 events (in megabytes range) with fewer 
  attributes to do parameter estimation and model comparison studies. 
+%The workflow starts with partly-reconstructed detector data,
+%and with simulated neutrino events.
+%These inputs come in the form of many files,
+%with an aggregate size in the petabyte range.
+%The first (reconstruction) step involves
+%an \art framework program,
+%run in many independent jobs,
+%and is used to perform tasks such as particle identification
+%and (neutrino) event identification.
+%The output of these program runs is a large number of large n-tuple files,
+%containing reduced data
+%for each identified candidate neutrino event.
+%The aggregate data size of the n-tuple files
+%is in the terabyte range.
+%The second (filtering) step
+%involves a serial \cpp program,
+%reads the large n-tuples,
+%and performs a strict event selection
+%and further reduces the data describing an event to a few numbers.
+%The output of this filtering step
+%is in the range of a few megabytes.
+%The final (fitting) step consists
+%of running a serial implementation
+%of the Feldman-Cousins algorithm
+%at each of many points in the mixing parameter space,
+%chosen on a fixed grid,
+%to map out contour plots describing the correlated parameter estimates.
+
 
 We need to explore alternate approaches to in-memory data processing to 
 improve time-to-physics and enable interactive analysis without significant overhead of bookkeeping and intermediate 
 files. The new large-scale, state-of-the-art computing systems provide tremendous compute and memory resources, and look promising for changing the traditional ways of doing these data analyses. 
 For example, Cori, supercomputer at NERSC provides aggregate memory of 203 terabytes for Haswell nodes and sustained application performance of 83 TFlop/s. 
 However, the choice of programming abstractions to efficiently access and analyze data on these big compute machines remains a challenge. 
-The traditional approach of using MPI burdens the programmer with fine grain details and control of the system to the level of data and task assignment to which memory technology to use. The new approach of using high level programming abstractions of Spark, an industry de-facto has been recently made available on these machines but is neither designed for the scientific applications and data nor to exploit the high performance computing platforms that are 
+The traditional approach of using MPI burdens the programmer with fine grain details and control of the system, such as data and task assignment, choice of memory technology, etc. The new approach of using high level programming abstractions on distributed datasets, Spark, an industry de-facto has been recently made available on these machines but it is neither designed for the scientific applications and data nor to exploit the high performance computing platforms that are 
 available to the scientific community.
 
 In this talk, we present a thorough comparison of performance and usability aspects of 
-both traditional and industry de-facto approach by implementing use cases from HEP.  
+both the traditional and the industry standard approach by implementing use cases from HEP.  
 More specifically, we will focus on the challenges related to implementing selection and 
 filtering criteria on billions of events using Apache Spark~\cite{spark,spark1} and MPI by running tests at NERSC~\cite{nersc-spark}. 
 %Our work is unique because we have been using both MPI and Spark on HPC resources for HEP analyses. 
