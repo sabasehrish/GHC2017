@@ -52,19 +52,22 @@ Audience: Beginner, Intermediate technical talk \\
 \section{Features of selection and filtering and our approach}
 %\squeezeup
 
-The structured event data is converted to a simplified tabular data structure, called as n-tuples. 
+
+Our input data consists of events and their attributes. 
+The event is the smallest unit of data representing a complete readout of the full
+detector (whether real or simulated). 
+The structured event data is converted to a simplified tabular data structure for analysis tasks, called as n-tuples. 
 These n-tuples have a simple flat structure of vectors of basic types like integers and floats. 
-Each row of a table holds information about different particles (photons, electrons, taus) and 
+If an event is representing collision data, then 
+each row of a table holds information about different particles (photons, electrons, taus) and 
 their properties (momentum, etc) in an event. Often, the n-tuples are still too big for interactive 
-analysis ($\approx$ 2) terabytes. Therefore, the contents and the number of events are 
+analysis $\approx$ terabytes. Therefore, the contents and the number of events are 
 reduced to couple of gigabytes. Eventually, quantities from the final n-tuple are aggregated 
 and plotted as histograms. 
-The time scale of the complete Dark Matter workflow 
-can range from days to weeks, depending on the number of events needed for analysis.
+%The time scale of the complete Dark Matter workflow 
+%can range from days to weeks, depending on the number of events needed for analysis.
 
-The data we operate on describe an events, and its attributes. 
-An event is the basic processing unit, which describes a collision or? 
-A typical analysis task looks at all the (collisions) event data, which includes data about 
+A typical analysis task looks at all the event data, which includes data about 
 all the particles that were formed as a result of collision and searches for 
 interesting events based on signatures specified by scientists. 
 The selection and filtering criteria involves reducing the event count, 
@@ -76,25 +79,37 @@ unless we main index for each column involved in range query or do a
 full scan of data. Both options are inefficient in terms of space utilization 
 as well performance. 
 
-For example, such a search query will look like 
-Find all the events that have:
-\begin{enumerate}
-\item missing transverse energy greater than 200 GeV and 
-\item at least one electron candidate with 
-\begin{enumerate}
-\item Transverse momentum > 200 GeV
-\item eta in the range of -2.5 to 2.5
-\item good electron quality: qual > 5
-\end{enumerate}
-\end{enumerate}
-For each selected event record: missing transverse energy , the leading electron transverse momentum
+\textit{Example Query:} Find all the events that have:
+1) missing transverse energy greater than 200 GeV and 
+2) at least one electron candidate with: transverse momentum > 200 GeV, eta in the range of -2.5 to 2.5
+and good electron quality: qual > 5
+For each selected event record, select: missing transverse energy , the leading electron transverse momentum
 
 To benefit from big compute and memory architecture, we represent our data 
 in HDF5 format, which is highly optimized for access in these machines. 
 In Spark, we use the combination of Scala functional programming with Spark SQL 
 allows us to describe the queries to operate on dataset as a whole. 
-In MPI, we make use of the numpy arrays and define operations on the arrays, 
-and use MPI for communication. 
+We used the User-defined Functions (UDF) provided by Spark SQL to define new column based 
+functions. We implemented several UDFs, and a few were using inputs from tens of 
+other columns, see~\cite{spark-hdf5-cms} for details. The drawback of using UDFs is they are treated as black box code, 
+and Spark doesn't try to optimize these~\cite{spark-notes}. In some cases, we divided required filter conditions 
+into multiple equivalent conditions to simplify UDFs. 
+Several filter operations per DataFrame are defined; but all these are lazy evaluated. 
+In our filter implementation, we used several conditionals, 
+\texttt{select} queries, \texttt{groupby}, and \texttt{aggregations (sum, count)}. 
+After the aggregation operations, we are usually left with one particle per event in 
+all the particles DataFrames. 
+We used \texttt{SQL select} queries to join columns from different DataFrames.
+The analysis was implemented in Apache Spark 2.0 DataFrame API using Scala.  
+
+The MPI implementation used parallel read with in each file utilizing the Python interface 
+for reading HDF5 files, \texttt{h5py}~\cite{h5py}, with MPI/IO support (\texttt{mpi4py}~\cite{mpi4py}). 
+In MPI, we used \texttt{NumPy}~\cite{numpy} arrays to hold the data in memory and 
+\texttt{MPI.COMM\_WORLD.Reduce()} with op as \texttt{MPI.SUM}. 
+The interface provided by \texttt{h5py}, \texttt{mpi4py}, and \texttt{numpy} 
+is simple to use, and offers a competitive approach to the high level API offered by Spark. 
+%In MPI, we make use of the numpy arrays and define operations on the arrays, 
+%and use MPI for communication. 
 
 We implement this problem in two phases, one is read data, and second is process data. 
 
@@ -110,7 +125,7 @@ We implement this problem in two phases, one is read data, and second is process
 
 %\squeezeup
 \section{Comparing two approaches}
-\squeezeup
+%\squeezeup
  \paragraph{On-disk data} 
 %Our first step is to convert the data to a form that 
 %can be readily read in Spark DataFrames as shown in Figure~\ref{fig:flow}. 
@@ -146,19 +161,33 @@ We also use inner joins to combine the DataFrames, but the overhead of the
 %\texttt{reduce}. 
 Scala is a natural choice to implement this operation; Spark is written in Scala 
 and it should out-perform Python on large data sets.  
+ There are functions available to
+  perform transformations, aggregations, global reduction in a distributed environment, which can be
+  readily used. Such a set-up provides ease-of-programming, however, it does mean that the user has to
+  rely on system optimizations provided by Spark's implementation to
+  improve any performance. 
+Similarly, it is hard to understand a DAG created by Spark for SQL queries on 
+DataFrames, and users have minimal control over optimizing the 
+query structure, data partitions, etc. In MPI, uses have to provide all the functionality keeping 
+parallel processing in mind. 
 
 
 \paragraph{Performance: } 
 
-
+MPI implementation always performs better as compared with the Spark 
+implementation for the test we ran using global summation across a column; 
+both implementations are reading the same data, and doing the exact same calculation. 
+We also observed that once data is loaded into the Spark DataFrame, the sum operation takes 
+less than 4 seconds to complete. 
  
 \paragraph{Scaling: }
-We have used Java in our initial experience with Spark to perform filter and reduction 
-operation and understand the performance and scaling on Cori (NERSC). 
-Using a data set of size 250 GB, with about 70 million records and applying a simple filter operation, 
-the Spark implementation provided good
-  scaling without requiring either tuning of the implementation or
+The Spark implementation provided good
+  scaling without requiring any tuning to the implementation and
   developer expertise in parallel algorithms. 
+  When the number of partitions is less than number of cores allocated, 
+we are wasting resources and observe degraded performance. 
+However, it has been challenging to control number of tasks in some cases. 
+We anticipate good scaling behavior when we use bigger data sets ($\approx$ 200TB). 
    
 
  \paragraph{Orchestration: } 
@@ -169,6 +198,13 @@ In Spark, data distribution and task assignment
   distributed environment. It does mean, however, that the user has to
   rely on system optimizations provided by Spark's implementation to
   improve any performance.
+  We defined partition size, and number 
+of tasks for our use case but for many use cases we can use the 
+default partition size, which is equal to file system block size. 
+But figuring out the best partition size for a job is challenging. 
+Allocating tasks and data partition to the worker nodes is abstracted 
+from the user. Users don't have to change the number of tasks to match 
+with the number of cores available. 
 
   \paragraph{Application tuning: } All the transformations in Spark
   are lazy, with delayed calculation of results. The transformations
@@ -177,13 +213,22 @@ In Spark, data distribution and task assignment
   This design enables Spark to run more efficiently. 
   Due to this lazy evaluation, it is hard to isolate slow-performing tasks and report
   timing for different stages. 
+  Without an expert help 
+it is challenging to identify what configuration and options to use for 
+an application. 
+For example, memory per node, number of cores per node,
+debug level, etc.  
   In MPI, since developer has more control over data and task assignment, it is 
   straightforward to measure performance of each compute and I/O operation.  
 
 \paragraph{Debugging: } 
 Distributed applications are challenging to debug. 
 In Spark applications, 
-most of the times error messages are misleading and need more workjust to understand the error message before working ona solution. Use of graphical interface and history server canbe useful but when using DataFrame API, understandingdifferent stages and partitions is not straightforward. 
+most of the times error messages are misleading and need more work
+just to understand the error message before working on
+a solution. Use of graphical interface and history server can
+be useful but when using DataFrame API, understanding
+different stages and partitions is not straightforward. 
 In MPI, 
 
 
@@ -193,6 +238,9 @@ The availability of Python and R interface for end user analyses is also a key f
 
 
 \paragraph{Documentation} 
+Spark could be used more effectively with comprehensive documentation with 
+reasonable examples. 
+
 
 \section{Conclusion}
 Spark is relatively new and emerging technology, and its use, especially 
